@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PocketLedger — Offline-first AI expense ledger for freelancers</title>
+<meta name="description" content="PocketLedger: an offline-first AI expense ledger. On-device categorization keeps financial details private, instant and free; the cloud turns a month of entries into a tax-ready summary.">
+<link rel="stylesheet" href="styles.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📒</text></svg>">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="logo" aria-hidden="true">📒</span>
+    <div>
+      <h1>PocketLedger</h1>
+      <p class="tagline">Offline-first AI expense ledger for freelancers</p>
+    </div>
+  </div>
+  <div class="status-cluster" aria-label="Connection and Firebase status">
+    <span id="onlineIndicator" class="pill pill-online" title="Local-first: entries are saved on this device first and work offline.">● Online</span>
+    <span id="firebaseStatus" class="pill pill-warn">Firebase: not configured</span>
+  </div>
+</header>
+
+<main>
+  <div id="configBanner" class="banner banner-warn" role="status">
+    <strong>Firebase not configured</strong> — add your config to <code>firebase-config.js</code> to enable AI categorization, cloud sync and the monthly review. Everything else on this page works offline, right now.
+  </div>
+  <div id="appError" class="banner banner-error" role="alert" hidden></div>
+
+  <section class="card" aria-labelledby="add-heading">
+    <h2 id="add-heading">Add an expense</h2>
+    <form id="expenseForm">
+      <div class="form-grid">
+        <label>Amount (USD)
+          <input id="amount" type="number" min="0.01" step="0.01" inputmode="decimal" placeholder="42.50" required>
+        </label>
+        <label>Date
+          <input id="date" type="date" required>
+        </label>
+        <label class="span-2">Description
+          <input id="description" type="text" maxlength="120" placeholder="e.g. Train to client site in Chicago" required>
+        </label>
+        <label>Category
+          <select id="category">
+            <option value="">— Pick or use AI Classify —</option>
+            <option>Travel</option>
+            <option>Meals</option>
+            <option>Supplies</option>
+            <option>Software</option>
+            <option>Rent &amp; Utilities</option>
+            <option>Marketing</option>
+            <option>Other</option>
+          </select>
+        </label>
+        <label class="check">Tax deductible?
+          <input id="deductible" type="checkbox">
+        </label>
+      </div>
+      <p id="aiResult" class="ai-result" hidden></p>
+      <p id="aiStatus" class="muted small" aria-live="polite"></p>
+      <div class="btn-row">
+        <button type="button" id="classifyBtn" class="btn btn-ai" disabled>✨ AI Classify</button>
+        <button type="submit" class="btn btn-primary">Save expense</button>
+        <button type="button" id="seedBtn" class="btn btn-ghost">Load demo data (6 expenses)</button>
+        <button type="button" id="exportBtn" class="btn btn-ghost">Export CSV</button>
+      </div>
+      <p class="muted small">AI Classify runs on-device first (Firebase AI Logic, <code>PREFER_ON_DEVICE</code>) and falls back to the cloud only when the on-device model is unavailable. The badge next to the result always shows the real inference source reported by the SDK. No keyword rules are used — without Firebase configured, this button stays disabled.</p>
+    </form>
+  </section>
+
+  <section class="card" aria-labelledby="dash-heading">
+    <div class="section-head">
+      <h2 id="dash-heading">Dashboard</h2>
+      <label class="month-picker">Month
+        <input id="monthPicker" type="month">
+      </label>
+    </div>
+    <div class="stats">
+      <div class="stat"><span class="stat-label">Total spent</span><span class="stat-value" id="totalSpent">$0.00</span></div>
+      <div class="stat"><span class="stat-label">Tax-deductible</span><span class="stat-value" id="totalDeductible">$0.00</span></div>
+      <div class="stat"><span class="stat-label">Entries</span><span class="stat-value" id="entryCount">0</span></div>
+      <div class="stat"><span class="stat-label">Avg / entry</span><span class="stat-value" id="avgEntry">$0.00</span></div>
+    </div>
+    <h3>Spending by category</h3>
+    <div id="categoryChart" class="chart" aria-label="Spending by category bar chart"></div>
+    <h3>Recent entries</h3>
+    <ul id="entryList" class="entries"></ul>
+    <p id="emptyState" class="muted">No entries yet for this month. Add one above, or load the demo data.</p>
+  </section>
+
+  <section class="card" aria-labelledby="review-heading">
+    <h2 id="review-heading">Monthly review <span class="pill pill-cloud">IN CLOUD</span></h2>
+    <p>When you turn this on, a summary of <strong>this month's entries only</strong> (category totals and counts — no raw descriptions) is sent to the cloud model, which returns a short monthly review and one money-saving tip. Nothing is sent while the switch is off.</p>
+    <label class="switch-row">
+      <input type="checkbox" id="cloudReviewToggle" role="switch">
+      <span><strong>Send this month's summary to the cloud for review</strong><br>
+      <span class="muted small">Off by default. Your choice is stored on this device.</span></span>
+    </label>
+    <p id="reviewGate" class="muted small"></p>
+    <div class="btn-row">
+      <button type="button" id="reviewBtn" class="btn btn-primary" disabled>Generate monthly review</button>
+    </div>
+    <div id="reviewOutput" class="review-output" hidden></div>
+  </section>
+
+  <section class="card" aria-labelledby="sync-heading">
+    <h2 id="sync-heading">Cloud sync (optional)</h2>
+    <p class="muted">Your ledger always lives on this device first. Optionally sign in anonymously to back it up to Firestore and restore it on another device.</p>
+    <div class="btn-row">
+      <button type="button" id="syncBtn" class="btn btn-ghost" disabled>Enable anonymous cloud sync</button>
+    </div>
+    <p id="syncStatus" class="muted small">Sync is unavailable until Firebase is configured.</p>
+    <details class="small muted">
+      <summary>Remote Config values (live)</summary>
+      <ul id="remoteConfigList">
+        <li><code>cloudReviewEnabled</code>: <span id="rcReview">not loaded (Firebase not configured)</span></li>
+        <li><code>reviewPromptVersion</code>: <span id="rcPrompt">not loaded (Firebase not configured)</span></li>
+      </ul>
+    </details>
+  </section>
+
+  <footer class="muted small">
+    <p>PocketLedger — built for Devpost #BuildHybridAI 2026. Local-first: entries are stored in this browser's localStorage. AI categorization uses Firebase AI Logic (hybrid on-device / cloud inference, Gemini Developer API backend); monthly review uses cloud inference only, and only with your explicit opt-in. This app gives general bookkeeping help, not tax advice.</p>
+    <p>Firebase JS SDK <span id="sdkVersion">—</span> · <a href="https://github.com/firebase/firebase-js-sdk" target="_blank" rel="noopener">firebase-js-sdk</a></p>
+  </footer>
+</main>
+
+<script>
+  // Surface a boot failure instead of a blank page.
+  window.addEventListener('error', function (e) {
+    var el = document.getElementById('appError');
+    if (el && !window.__pocketLedgerBooted) {
+      el.hidden = false;
+      el.textContent = 'Something failed while loading PocketLedger: ' + (e.message || 'unknown error') + '. Local entries are still safe in this browser.';
+    }
+  });
+</script>
+<script type="module" src="app.js"></script>
+</body>
+</html>
