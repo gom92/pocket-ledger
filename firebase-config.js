@@ -28,10 +28,16 @@ export const FIREBASE_CONFIG = {
   appId: "1:963218142390:web:76fb0291298489ab9c6217",
 };
 
-// Optional: reCAPTCHA v3 site key for App Check in production.
-// Leave as-is for local development: the App Check debug provider
-// (self.FIREBASE_APPCHECK_DEBUG_TOKEN = true) is used instead.
-export const APP_CHECK_SITE_KEY = "YOUR_RECAPTCHA_V3_SITE_KEY";
+// reCAPTCHA Enterprise site key for App Check (public key — safe to ship).
+// Created 2026-11-24 for domains gom92.github.io + localhost; the web app
+// is REGISTERED with it in the Firebase console as Fraud Defense
+// (reCAPTCHA Enterprise) — verified "已注册" 2026-11-24. The old reCAPTCHA
+// v3 key (6LcdFDAu...) is obsolete: reCAPTCHA Classic is deprecated and the
+// console refuses v3 registration. Firebase AI Logic enforcement is ON for
+// this project, so AI calls need the valid token this key produces. Local
+// dev must serve on http://localhost (not 127.0.0.1) so the key's domain
+// matches.
+export const APP_CHECK_SITE_KEY = "6Ld6_S8uAAAAALdxw1hQ_O8R8hDoaX4au462qRIG";
 
 export const FIREBASE_CONFIGURED = Object.values(FIREBASE_CONFIG).every(
   (v) => typeof v === "string" && v && !v.startsWith("YOUR_")

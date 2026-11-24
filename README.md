@@ -17,7 +17,7 @@
   entry count, average, a CSS bar chart, and a recent-entries list (with delete).
 - **Monthly review (cloud, opt-in only)** — off by default. When you switch it
   on, only that month's *aggregated category totals* are sent to the cloud
-  model (`gemini-2.5-flash`, `ONLY_IN_CLOUD`), which returns a short English
+  model (`gemini-3.5-flash-lite`, `ONLY_IN_CLOUD`), which returns a short English
   review plus one money-saving tip. No raw expense descriptions leave the device.
 - **Local-first** — entries are saved to `localStorage` first and work fully
   offline; an online/offline indicator is shown in the header.
@@ -56,10 +56,10 @@ Or deploy as-is to GitHub Pages (repo root = site root).
    **Firestore Database**, **Remote Config**.
 5. In Remote Config create `cloudReviewEnabled` (boolean, default `true`)
    and `reviewPromptVersion` (string, default `v1`).
-6. For production App Check, replace `APP_CHECK_SITE_KEY` in
-   `firebase-config.js` with a real reCAPTCHA v3 site key. Local development
-   uses the App Check debug provider (`self.FIREBASE_APPCHECK_DEBUG_TOKEN = true`,
-   set before `initializeAppCheck`, per the official docs).
+6. For production App Check, the web app must be registered in the Firebase
+   console (App Check → Apps) with a reCAPTCHA Enterprise (Fraud Defense)
+   site key, stored as `APP_CHECK_SITE_KEY` in `firebase-config.js`.
+   (reCAPTCHA Classic / v3 is deprecated and its console input is disabled.)
 
 ## Architecture
 

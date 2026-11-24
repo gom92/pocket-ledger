@@ -15,7 +15,17 @@ const SDK_BASE = `https://www.gstatic.com/firebasejs/${SDK_VERSION}`;
 export const CATEGORIES = ["Travel", "Meals", "Supplies", "Software", "Rent & Utilities", "Marketing", "Other"];
 const STORAGE_KEY = "pocketledger.entries.v1";
 const CONSENT_KEY = "pocketledger.cloudReviewConsent.v1";
-const CLOUD_MODEL = "gemini-2.5-flash"; // cloud fallback / monthly-review model
+const CLOUD_MODEL = "gemini-3.5-flash-lite"; // cloud fallback / monthly-review model
+// Model history (verified against Firebase docs 2026-11-24):
+// - gemini-2.5-flash: RETIRED 2026-10-20; backend 404s it ("no longer
+//   available to new users"). Google's designated replacement is
+//   gemini-3.5-flash-lite (stable, released 2026-07-21, no shutdown date).
+// - gemini-3.8-flash: stable and named by the backend as the 2.5-flash
+//   replacement, BUT it returned 500 "high demand" on every call for ~30
+//   min (live run 6 + 3 retry attempts, 2026-11-24). gemini-3.5-flash-lite
+//   is the lighter sibling in the same family and the official replacement
+//   for the retired model, so it is used instead. If it 500s too, retry
+//   later — the 500 is a capacity error, not a config error.
 
 const $ = (id) => document.getElementById(id);
 const money = (n) => "$" + Number(n || 0).toFixed(2);
@@ -93,7 +103,7 @@ function render() {
   for (const e of sorted) {
     const li = document.createElement("li");
     const badge = e.inferenceSource && e.inferenceSource !== "SEED"
-      ? ` <span class="pill ${e.inferenceSource === "ON_DEVICE" ? "pill-device" : "pill-cloud"}">${e.inferenceSource}</span>` : "";
+      ? ` <span class="pill ${String(e.inferenceSource).toLowerCase() === "on_device" ? "pill-device" : "pill-cloud"}">${e.inferenceSource}</span>` : "";
     li.innerHTML = `<span><span class="desc"></span> <span class="cat"></span>${badge}</span><span class="amt">${money(e.amount)}</span>`;
     li.querySelector(".desc").textContent = e.description;
     li.querySelector(".cat").textContent = `· ${e.date} · ${e.category}`;
@@ -156,7 +166,7 @@ async function initFirebase() {
     if (!FIREBASE_CONFIGURED) return null;
     const [
       { initializeApp },
-      { initializeAppCheck, ReCaptchaV3Provider },
+      { initializeAppCheck, ReCaptchaEnterpriseProvider },
       { getAI, GoogleAIBackend },
       { getAuth },
       { getFirestore },
@@ -170,17 +180,29 @@ async function initFirebase() {
       import(`${SDK_BASE}/firebase-remote-config.js`),
     ]);
     const app = initializeApp(FIREBASE_CONFIG);
-    // App Check debug provider for local development / GitHub Pages preview:
-    // must be set BEFORE initializeAppCheck; the console prints a debug
-    // token to register in the Firebase console (App Check > Manage debug tokens).
-    try {
-      self.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
-      initializeAppCheck(app, {
-        provider: new ReCaptchaV3Provider(APP_CHECK_SITE_KEY),
-        isTokenAutoRefreshEnabled: true,
-      });
-    } catch (err) {
-      console.warn("App Check init failed (AI calls may be rejected):", err);
+    // App Check is only initialized when a real reCAPTCHA Enterprise site
+    // key is configured. With a placeholder key, initializing it would
+    // attach an unregistered debug token to every AI request, and the
+    // backend rejects those with 401 "Firebase App Check token is invalid".
+    // Skipping App Check means AI calls carry no App Check token — rejected
+    // while enforcement is on (Firebase AI Logic enforcement is ON for this
+    // project, verified 2026-11-24 in the console: "基本 - 已强制执行").
+    // With a real Enterprise site key in firebase-config.js, App Check
+    // initializes with ReCaptchaEnterpriseProvider and AI calls carry a
+    // valid token. (The old reCAPTCHA v3 provider is gone: reCAPTCHA
+    // Classic is deprecated, the console refuses v3 registration, and the
+    // web app is registered with Fraud Defense / reCAPTCHA Enterprise.)
+    if (APP_CHECK_SITE_KEY && !APP_CHECK_SITE_KEY.startsWith("YOUR_")) {
+      try {
+        initializeAppCheck(app, {
+          provider: new ReCaptchaEnterpriseProvider(APP_CHECK_SITE_KEY),
+          isTokenAutoRefreshEnabled: true,
+        });
+      } catch (err) {
+        console.warn("App Check init failed (AI calls may be rejected):", err);
+      }
+    } else {
+      console.warn("App Check skipped: no reCAPTCHA Enterprise site key configured; AI calls run without an App Check token.");
     }
     const ai = getAI(app, { backend: new GoogleAIBackend() });
     const rc = getRemoteConfig(app);
@@ -214,7 +236,7 @@ async function initFirebase() {
 function aiSchema(Schema) {
   return Schema.object({
     properties: {
-      category: Schema.enumString(CATEGORIES, { description: "One of the fixed expense categories." }),
+      category: Schema.enumString({ enum: CATEGORIES, description: "One of the fixed expense categories." }),
       deductible: Schema.boolean({ description: "Whether this expense is generally tax-deductible for a freelancer." }),
       note: Schema.string({ description: "One short English sentence explaining the category and deductibility." }),
     },
@@ -273,7 +295,7 @@ async function classifyExpense() {
     status.textContent = "Classifying…";
     const result = await model.generateContent(classifyPrompt(amount, description, date));
     const response = result.response;
-    const source = response.inferenceSource || "unknown"; // ON_DEVICE | IN_CLOUD, as reported by the SDK
+    const source = response.inferenceSource || "unknown"; // SDK 13.4.0 reports lowercase "on_device" | "in_cloud"; displayed verbatim
     const parsed = JSON.parse(response.text());
     if (!CATEGORIES.includes(parsed.category) || typeof parsed.deductible !== "boolean" || typeof parsed.note !== "string") {
       throw new Error("Model returned an unexpected result shape.");
@@ -284,10 +306,10 @@ async function classifyExpense() {
     out.hidden = false;
     out.innerHTML = "";
     const badge = document.createElement("span");
-    badge.className = `pill ${source === "ON_DEVICE" ? "pill-device" : "pill-cloud"}`;
+    badge.className = `pill ${String(source).toLowerCase() === "on_device" ? "pill-device" : "pill-cloud"}`;
     badge.textContent = source;
     out.append("AI result: ", badge, document.createTextNode(` ${parsed.category} · ${parsed.deductible ? "deductible" : "not deductible"} — ${parsed.note}`));
-    status.textContent = source === "ON_DEVICE"
+    status.textContent = String(source).toLowerCase() === "on_device"
       ? "Classified on-device — your expense details never left this device."
       : "On-device model unavailable here, so this was classified in the cloud (fallback).";
   } catch (err) {
